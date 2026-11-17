@@ -111,7 +111,7 @@ const label=c=>LANGS.find(l=>l[0]===c)[1];
 
 function setOut(t,cls){out.textContent=t;out.className=cls||"";}
 function upd(){$("count").textContent=src.value.length+"/500";}
-function tagUpd(){$("tag").textContent="Tarjima: "+label(to.value);}
+function tagUpd(v){$("tag").textContent="Tarjima: "+label(to.value)+(v?" · "+v:"");}
 tagUpd();
 
 src.addEventListener("input",()=>{upd();clearTimeout(timer);if(src.value.trim().length>1)timer=setTimeout(translate,900);});
@@ -128,20 +128,28 @@ $("paste").onclick=async()=>{
   catch(e){src.focus();}
 };
 
-async function viaGoogle(q){
-  const r=await fetch("https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl="+from.value+"&tl="+to.value+"&q="+encodeURIComponent(q));
-  if(!r.ok)throw new Error("HTTP "+r.status);
-  const d=await r.json();
-  const t=d[0].map(x=>x[0]).join("");
-  if(!t)throw new Error("boʻsh javob");
-  return t;
+const enc=encodeURIComponent;
+async function jget(u){const r=await fetch(u);if(!r.ok)throw new Error("HTTP "+r.status);return r.json();}
+async function g1(q){
+  const d=await jget("https://translate.googleapis.com/translate_a/single?client=gtx&dt=t&sl="+from.value+"&tl="+to.value+"&q="+enc(q));
+  const t=d[0].map(x=>x[0]).join("");if(!t)throw new Error("bosh");return {t,via:"Google"};
 }
-async function viaMyMemory(q){
+async function g2(q){
+  const d=await jget("https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl="+from.value+"&tl="+to.value+"&q="+enc(q));
+  let t="";
+  if(Array.isArray(d)){t=Array.isArray(d[0])?d[0][0]:d[0];}
+  else if(d.sentences){t=d.sentences.map(x=>x.trans||"").join("");}
+  if(!t)throw new Error("bosh");return {t,via:"Google"};
+}
+async function lingva(q){
+  const d=await jget("https://lingva.ml/api/v1/"+from.value.split("-")[0]+"/"+to.value.split("-")[0]+"/"+enc(q));
+  if(!d.translation)throw new Error("bosh");return {t:d.translation,via:"Lingva"};
+}
+async function mymemory(q){
   const lp=from.value.split("-")[0]+"|"+to.value;
-  const r=await fetch("https://api.mymemory.translated.net/get?q="+encodeURIComponent(q)+"&langpair="+lp);
-  const d=await r.json();
+  const d=await jget("https://api.mymemory.translated.net/get?q="+enc(q)+"&langpair="+lp);
   if(Number(d.responseStatus)!==200)throw new Error(d.responseDetails||"xatolik");
-  return d.responseData.translatedText;
+  return {t:d.responseData.translatedText,via:"zaxira"};
 }
 async function translate(){
   clearTimeout(timer);
@@ -151,9 +159,11 @@ async function translate(){
   const me=++job;
   $("go").disabled=true;setOut("Tarjima qilinmoqda","empty dots");
   try{
-    const t=await viaGoogle(q).catch(()=>viaMyMemory(q));
+    let r;
+    try{r=await Promise.any([g1(q),g2(q),lingva(q)]);}
+    catch(e){r=await mymemory(q);}
     if(me!==job)return;
-    result=t;setOut(t);
+    result=r.t;setOut(r.t);tagUpd(r.via);
   }catch(e){
     if(me!==job)return;
     result="";setOut("Tarjima qilib boʻlmadi ("+(e.message||e)+"). Qayta urinib koʻring.","err");
